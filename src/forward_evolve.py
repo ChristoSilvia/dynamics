@@ -27,8 +27,9 @@ class Integrator:
     self.limb_kinematics = baxter_pykdl.baxter_kinematics(self.limb_name)
     
     # params
-    self.eps = 1e-7
+    self.eps = 1e-9
 
+    # setup initial conditions to be current robot joint positions/velocities
     rospy.loginfo("Getting Initial Conditions")
     rospy.loginfo("Initial Joint Positions")
     q_init = self.make_vec(self.limb.joint_angles)
@@ -44,20 +45,32 @@ class Integrator:
     x_init[7:] = p_init
     print x_init
 
+    # time domain to evaluate on
+    T = np.linspace(0,4,10000)
 
-    T = np.linspace(0,4,1000)
+    # integrate
     Q = scipy.integrate.odeint(self.f, x_init, T)
+
+    # plot
     for i in xrange(7):
       plt.plot(T,Q[:,i],label=self.joint_names[i])
+    plt.legend()
+
+    plt.figure()
+    for i in xrange(7):
+      plt.plot(T,Q[:,7+i],label="{0} momentum".format(self.joint_names[i]))
     plt.legend()
     plt.show()
 
 
+  def torque(self, t):
+    return np.zeros(7)
 
   def f(self, x, t):
     x_dot = np.empty(14)
 
     joint_dict = self.make_dict(x[:7])
+    torque = self.torque(t)
 
     I = np.array(self.limb_kinematics.inertia(joint_values = joint_dict))
     x_dot[:7] = np.linalg.solve(I,x[7:])
@@ -65,7 +78,7 @@ class Integrator:
       delta_joint_dict = joint_dict
       delta_joint_dict[self.joint_names[i]] += self.eps
       dI_dqi = (np.array(self.limb_kinematics.inertia(joint_values = delta_joint_dict)) - I)/self.eps
-      x_dot[7+i] = 0.5 * np.dot(x_dot[:7].T, np.dot(dI_dqi, x_dot[:7]))
+      x_dot[7+i] = 0.5 * np.dot(x_dot[:7].T, np.dot(dI_dqi, x_dot[:7])) - torque[i]
 
     print("Energy: {0}".format(0.5*np.dot(x_dot[:7].T,np.dot(I, x_dot[:7]))))
     return x_dot
